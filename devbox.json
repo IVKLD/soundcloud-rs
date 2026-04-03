@@ -1,0 +1,20 @@
+{
+  "packages": {
+    "rustup": "1.28.2",
+        "pkg-config": "latest",
+    "openssl": {
+        "version": "latest",
+        "outputs": ["out", "dev"]
+      }
+  },
+  "env": {
+    "PKG_CONFIG_PATH": "$DEVBOX_PACKAGES_DIR/lib/pkgconfig"
+  },
+  "shell": {
+    "init_hook": ["rustup default stable", "cargo fetch"],
+    "scripts": {
+      "server": "RUSTFLAGS=-Awarnings cargo run \"$@\"",
+      "zed": "zeditor ."
+    }
+  }
+}

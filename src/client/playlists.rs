@@ -14,10 +14,7 @@ impl Client {
         Ok(resp)
     }
 
-    pub async fn get_playlist(
-        &self,
-        identifier: &Identifier,
-    ) -> Result<Playlist, Error> {
+    pub async fn get_playlist(&self, identifier: &Identifier) -> Result<Playlist, Error> {
         let url = format!("playlists/{identifier}");
         let resp: Playlist = self.get(&url, None::<&()>).await?;
         Ok(resp)
@@ -57,11 +54,14 @@ impl Client {
         let output_path_str = output_path
             .to_str()
             .expect("Failed to convert output path to string");
+
         let tracks = playlist.tracks.as_ref().expect("Missing tracks");
         for track in tracks {
             let identifier = track.id.as_ref().expect("Missing track id");
+
             if let Err(e) = self
                 .download_track(
+                    &track,
                     &Identifier::Id(*identifier),
                     None,
                     Some(output_path_str),

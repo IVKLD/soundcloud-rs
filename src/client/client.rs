@@ -52,7 +52,7 @@ impl Client {
         request = request.query(&[("client_id", client_id)]);
 
         let response = request.send().await.map_err(|e| {
-            println!("Error sending request: {e}");
+            println!("Error sending request: {:?}", e);
             Error::from(e)
         })?;
 
@@ -63,9 +63,8 @@ impl Client {
             return Err(Error::new(format!("HTTP {}: {}", status, text)));
         }
 
-        // Parse JSON body for successful responses
         let body = response.json::<R>().await.map_err(|e| {
-            println!("Error parsing response: {e}");
+            println!("Error parsing response: {:#?}", e);
             Error::from(e)
         })?;
 
@@ -91,8 +90,8 @@ impl Client {
                 Err(e) => {
                     let error_msg = e.to_string();
                     // Check if we got a 401 and should retry
-                    if error_msg.contains("401") 
-                        && self.retry_config.retry_on_401 
+                    if error_msg.contains("401")
+                        && self.retry_config.retry_on_401
                         && retries < max_retries {
                         retries += 1;
                         println!("Received 401, refreshing client_id and retrying (attempt {retries}/{max_retries})");

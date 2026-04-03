@@ -10,18 +10,12 @@ use crate::models::response::{Track, Tracks};
 use crate::response::{Stream, StreamType, Transcoding, Waveform};
 
 impl Client {
-    pub async fn search_tracks(
-        &self,
-        query: Option<&TracksQuery>,
-    ) -> Result<Tracks, Error> {
+    pub async fn search_tracks(&self, query: Option<&TracksQuery>) -> Result<Tracks, Error> {
         let tracks: Tracks = self.get("search/tracks", query).await?;
         Ok(tracks)
     }
 
-    pub async fn get_track(
-        &self,
-        identifier: &Identifier,
-    ) -> Result<Track, Error> {
+    pub async fn get_track(&self, identifier: &Identifier) -> Result<Track, Error> {
         let url = format!("tracks/{identifier}");
         let resp: Track = self.get(&url, None::<&()>).await?;
         Ok(resp)
@@ -39,13 +33,12 @@ impl Client {
 
     pub async fn download_track(
         &self,
+        track: &Track,
         identifier: &Identifier,
         stream_type: Option<&StreamType>,
         destination: Option<&str>,
         filename: Option<&str>,
     ) -> Result<(), Error> {
-        let track = self.get_track(identifier).await?;
-
         let stream = match stream_type {
             Some(stream_type) => stream_type,
             None => &StreamType::Progressive,
@@ -90,10 +83,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_track_waveform(
-        &self,
-        identifier: &Identifier,
-    ) -> Result<Waveform, Error> {
+    pub async fn get_track_waveform(&self, identifier: &Identifier) -> Result<Waveform, Error> {
         let track = self.get_track(identifier).await?;
         let waveform_url = track.waveform_url.as_ref().expect("Missing waveform URL");
         let response = reqwest::get(waveform_url).await?;
@@ -112,10 +102,15 @@ impl Client {
             None => &StreamType::Progressive,
         };
         let transcoding = self.get_transcoding_by_stream_type(&track, stream).await?;
-        let path = transcoding.url.as_ref().ok_or_else(|| Error::new("Missing transcoding URL"))?;
+        let path = transcoding
+            .url
+            .as_ref()
+            .ok_or_else(|| Error::new("Missing transcoding URL"))?;
         let client_id = self.get_client_id_value().await;
         let (stream, _): (Stream, _) = Self::get_json(path, None, None::<&()>, &client_id).await?;
-        stream.url.ok_or_else(|| Error::new("Missing resolved stream URL"))
+        stream
+            .url
+            .ok_or_else(|| Error::new("Missing resolved stream URL"))
     }
 
     async fn get_transcoding_by_stream_type(
@@ -130,6 +125,7 @@ impl Client {
             .transcodings
             .as_ref()
             .expect("Missing transcodings");
+
         if transcodings.is_empty() {
             return Err(Error::new("No available download options"));
         }
@@ -140,6 +136,7 @@ impl Client {
                     Some(p) => p,
                     None => continue,
                 };
+
                 if *protocol != *stream_type {
                     continue;
                 }
@@ -150,8 +147,15 @@ impl Client {
                 };
 
                 let client_id = self.get_client_id_value().await;
-                let (stream, _): (Stream, _) =
-                    Self::get_json(path, None, None::<&()>, &client_id).await?;
+
+                let t_res = Self::get_json(path, None, None::<&()>, &client_id).await;
+
+                if t_res.is_err() {
+                    continue;
+                }
+
+                let (stream, _): (Stream, _) = t_res.unwrap();
+
                 if stream.url.is_some() {
                     return Ok(t.clone());
                 }
@@ -172,12 +176,9 @@ impl Client {
         Ok(())
     }
 
-    async fn download_hls(
-        &self,
-        stream_url: &str,
-        output_path: &Path,
-    ) -> Result<(), Error> {
-        download::auto_download().map_err(|e| Error::new(format!("FFmpeg download failed: {}", e)))?;
+    async fn download_hls(&self, stream_url: &str, output_path: &Path) -> Result<(), Error> {
+        download::auto_download()
+            .map_err(|e| Error::new(format!("FFmpeg download failed: {}", e)))?;
         let status = FfmpegCommand::new()
             .input(stream_url)
             .output(
