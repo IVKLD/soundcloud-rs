@@ -130,39 +130,41 @@ impl Client {
             return Err(Error::new("No available download options"));
         }
 
-        let transcoding: Option<Transcoding> = {
-            for t in transcodings {
-                let protocol = match t.format.as_ref().and_then(|f| f.protocol.as_ref()) {
-                    Some(p) => p,
-                    None => continue,
-                };
+        let mut transcoding: Option<Transcoding> = None;
+        let client_id = self.get_client_id_value().await;
 
-                if *protocol != *stream_type {
-                    continue;
-                }
+        for t in transcodings {
+            let protocol = match t.format.as_ref().and_then(|f| f.protocol.as_ref()) {
+                Some(p) => p,
+                None => continue,
+            };
 
-                let path = match t.url.as_ref() {
-                    Some(u) => u,
-                    None => continue,
-                };
+            if *protocol != *stream_type {
+                continue;
+            }
 
-                let client_id = self.get_client_id_value().await;
-
-                let t_res = Self::get_json(path, None, None::<&()>, &client_id).await;
-
-                if t_res.is_err() {
-                    continue;
-                }
-
-                let (stream, _): (Stream, _) = t_res.unwrap();
-
-                if stream.url.is_some() {
-                    return Ok(t.clone());
+            if let Some(path) = t.url.as_ref() {
+                if let Ok((stream, _)) = Self::get_json::<Stream, _>(path, None, None::<&()>, &client_id).await {
+                    if stream.url.is_some() {
+                        return Ok(t.clone());
+                    }
                 }
             }
-            None
-        };
-        Ok(transcoding.expect("No available download options"))
+        }
+
+        for t in transcodings {
+            if let Some(path) = t.url.as_ref() {
+                if let Ok((stream, _)) = Self::get_json::<Stream, _>(path, None, None::<&()>, &client_id).await {
+                    if stream.url.is_some() {
+                        return Ok(t.clone());
+                    }
+                }
+            }
+        }
+        match transcoding {
+            Some(t) => Ok(t),
+            None => Err(Error::new("No available download options")),
+        }
     }
 
     async fn download_progressive(
