@@ -10,10 +10,7 @@ impl Client {
         Ok(resp)
     }
 
-    pub async fn get_user(
-        &self,
-        identifier: &Identifier,
-    ) -> Result<User, Error> {
+    pub async fn get_user(&self, identifier: &Identifier) -> Result<User, Error> {
         let url = format!("users/{identifier}");
         let resp: User = self.get(&url, None::<&()>).await?;
         Ok(resp)

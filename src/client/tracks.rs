@@ -130,7 +130,6 @@ impl Client {
             return Err(Error::new("No available download options"));
         }
 
-        let mut transcoding: Option<Transcoding> = None;
         let client_id = self.get_client_id_value().await;
 
         for t in transcodings {
@@ -144,7 +143,9 @@ impl Client {
             }
 
             if let Some(path) = t.url.as_ref() {
-                if let Ok((stream, _)) = Self::get_json::<Stream, _>(path, None, None::<&()>, &client_id).await {
+                if let Ok((stream, _)) =
+                    Self::get_json::<Stream, _>(path, None, None::<&()>, &client_id).await
+                {
                     if stream.url.is_some() {
                         return Ok(t.clone());
                     }
@@ -152,19 +153,7 @@ impl Client {
             }
         }
 
-        for t in transcodings {
-            if let Some(path) = t.url.as_ref() {
-                if let Ok((stream, _)) = Self::get_json::<Stream, _>(path, None, None::<&()>, &client_id).await {
-                    if stream.url.is_some() {
-                        return Ok(t.clone());
-                    }
-                }
-            }
-        }
-        match transcoding {
-            Some(t) => Ok(t),
-            None => Err(Error::new("No available download options")),
-        }
+        Err(Error::new("No available download options"))
     }
 
     async fn download_progressive(

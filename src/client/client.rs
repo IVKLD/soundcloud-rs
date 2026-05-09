@@ -15,7 +15,10 @@ impl Client {
 
     pub async fn with_retry_config(retry_config: RetryConfig) -> Result<Self, Error> {
         let client_id = Self::get_client_id().await?;
-        Ok(Self { client_id: RwLock::new(client_id), retry_config })
+        Ok(Self {
+            client_id: RwLock::new(client_id),
+            retry_config,
+        })
     }
 
     pub async fn refresh_client_id(&self) -> Result<(), Error> {
@@ -92,9 +95,12 @@ impl Client {
                     // Check if we got a 401 and should retry
                     if error_msg.contains("401")
                         && self.retry_config.retry_on_401
-                        && retries < max_retries {
+                        && retries < max_retries
+                    {
                         retries += 1;
-                        println!("Received 401, refreshing client_id and retrying (attempt {retries}/{max_retries})");
+                        println!(
+                            "Received 401, refreshing client_id and retrying (attempt {retries}/{max_retries})"
+                        );
                         self.refresh_client_id().await?;
                         continue;
                     }
@@ -112,6 +118,7 @@ impl Client {
         let urls: Vec<String> = re
             .find_iter(&text)
             .map(|mat| mat.as_str().to_string())
+            .filter(|url| url.contains("sndcdn.com"))
             .collect();
         Ok(urls)
     }
@@ -128,9 +135,13 @@ impl Client {
 
     async fn get_client_id() -> Result<String, Error> {
         let script_urls = Self::get_script_urls().await?;
+        let mut set = tokio::task::JoinSet::new();
         for url in script_urls {
-            let client_id = Self::find_client_id(url).await?;
-            if let Some(client_id) = client_id {
+            set.spawn(Self::find_client_id(url));
+        }
+        while let Some(res) = set.join_next().await {
+            if let Ok(Ok(Some(client_id))) = res {
+                set.abort_all();
                 return Ok(client_id);
             }
         }

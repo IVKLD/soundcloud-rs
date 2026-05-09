@@ -6,6 +6,6 @@ pub mod response;
 
 pub use client::*;
 pub use config::*;
-pub use error::*;   
+pub use error::*;
 pub use query::*;
 pub use response::*;

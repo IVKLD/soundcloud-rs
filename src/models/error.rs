@@ -17,7 +17,10 @@ impl Error {
     }
 
     /// Create an error from another error with a message
-    pub fn from_error<E: std::error::Error + Send + Sync + 'static>(msg: impl Into<String>, source: E) -> Self {
+    pub fn from_error<E: std::error::Error + Send + Sync + 'static>(
+        msg: impl Into<String>,
+        source: E,
+    ) -> Self {
         Self {
             message: msg.into(),
             source: Some(Box::new(source)),
@@ -36,7 +39,9 @@ impl fmt::Display for Error {
 // OPTIONAL: source() method - we implement it to expose underlying errors for debugging
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
+        self.source
+            .as_ref()
+            .map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
     }
 }
 
@@ -72,4 +77,3 @@ impl From<String> for Error {
         Self::new(msg)
     }
 }
-

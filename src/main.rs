@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         limit: Some(5),
         ..Default::default()
     };
-    
+
     let tracks = client.search_tracks(Some(&query)).await?;
     let first_track = tracks.collection.first().expect("No tracks found");
     let first_track_id = first_track.id.expect("No track id found");
