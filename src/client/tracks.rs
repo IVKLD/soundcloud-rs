@@ -86,7 +86,7 @@ impl Client {
     pub async fn get_track_waveform(&self, identifier: &Identifier) -> Result<Waveform, Error> {
         let track = self.get_track(identifier).await?;
         let waveform_url = track.waveform_url.as_ref().expect("Missing waveform URL");
-        let response = reqwest::get(waveform_url).await?;
+        let response = self.http_client.get(waveform_url).send().await?;
         let waveform: Waveform = response.json::<Waveform>().await?;
         Ok(waveform)
     }
@@ -107,7 +107,7 @@ impl Client {
             .as_ref()
             .ok_or_else(|| Error::new("Missing transcoding URL"))?;
         let client_id = self.get_client_id_value().await;
-        let (stream, _): (Stream, _) = Self::get_json(path, None, None::<&()>, &client_id).await?;
+        let (stream, _): (Stream, _) = self.get_json(path, None, None::<&()>, &client_id).await?;
         stream
             .url
             .ok_or_else(|| Error::new("Missing resolved stream URL"))
@@ -144,7 +144,7 @@ impl Client {
 
             if let Some(path) = t.url.as_ref() {
                 if let Ok((stream, _)) =
-                    Self::get_json::<Stream, _>(path, None, None::<&()>, &client_id).await
+                    self.get_json::<Stream, _>(path, None, None::<&()>, &client_id).await
                 {
                     if stream.url.is_some() {
                         return Ok(t.clone());
@@ -161,31 +161,40 @@ impl Client {
         stream_url: &str,
         output_path: &Path,
     ) -> Result<(), Error> {
-        let response = reqwest::get(stream_url).await?;
+        let response = self.http_client.get(stream_url).send().await?;
         let bytes = response.bytes().await?;
         tokio::fs::write(output_path, &bytes).await?;
         Ok(())
     }
 
     async fn download_hls(&self, stream_url: &str, output_path: &Path) -> Result<(), Error> {
-        download::auto_download()
-            .map_err(|e| Error::new(format!("FFmpeg download failed: {}", e)))?;
-        let status = FfmpegCommand::new()
-            .input(stream_url)
-            .output(
-                output_path
-                    .to_str()
-                    .expect("Failed to convert output path to string"),
-            )
-            .args(["-c", "copy"])
-            .spawn()
-            .map_err(|e| Error::new(format!("FFmpeg spawn failed: {}", e)))?
-            .wait()
-            .map_err(|e| Error::new(format!("FFmpeg wait failed: {}", e)))?;
+        let stream_url = stream_url.to_string();
+        let output_path = output_path.to_path_buf();
 
-        if !status.success() {
-            return Err(Error::new("Download HLS Failed"));
-        }
+        tokio::task::spawn_blocking(move || {
+            download::auto_download()
+                .map_err(|e| Error::new(format!("FFmpeg download failed: {}", e)))?;
+            let status = FfmpegCommand::new()
+                .input(&stream_url)
+                .output(
+                    output_path
+                        .to_str()
+                        .expect("Failed to convert output path to string"),
+                )
+                .args(["-c", "copy"])
+                .spawn()
+                .map_err(|e| Error::new(format!("FFmpeg spawn failed: {}", e)))?
+                .wait()
+                .map_err(|e| Error::new(format!("FFmpeg wait failed: {}", e)))?;
+
+            if !status.success() {
+                return Err(Error::new("Download HLS Failed"));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| Error::new(format!("Tokio spawn_blocking failed: {}", e)))??;
+
         Ok(())
     }
 }

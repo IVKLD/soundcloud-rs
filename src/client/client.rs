@@ -14,15 +14,17 @@ impl Client {
     }
 
     pub async fn with_retry_config(retry_config: RetryConfig) -> Result<Self, Error> {
-        let client_id = Self::get_client_id().await?;
+        let http_client = reqwest::Client::new();
+        let client_id = Self::get_client_id(&http_client).await?;
         Ok(Self {
             client_id: RwLock::new(client_id),
             retry_config,
+            http_client,
         })
     }
 
     pub async fn refresh_client_id(&self) -> Result<(), Error> {
-        let new_client_id = Self::get_client_id().await?;
+        let new_client_id = Self::get_client_id(&self.http_client).await?;
         *self.client_id.write().await = new_client_id;
         Ok(())
     }
@@ -32,6 +34,7 @@ impl Client {
     }
 
     pub async fn get_json<R: DeserializeOwned, Q: Serialize>(
+        &self,
         base_url: &str,
         path: Option<&str>,
         query: Option<&Q>,
@@ -46,18 +49,14 @@ impl Client {
             None => base_url.to_string(),
         };
 
-        let client = reqwest::Client::new();
-        let mut request = client.get(&url);
+        let mut request = self.http_client.get(&url);
 
         if let Some(q) = query {
             request = request.query(q);
         }
         request = request.query(&[("client_id", client_id)]);
 
-        let response = request.send().await.map_err(|e| {
-            println!("Error sending request: {:?}", e);
-            Error::from(e)
-        })?;
+        let response = request.send().await.map_err(Error::from)?;
 
         let status = response.status().as_u16();
 
@@ -66,10 +65,7 @@ impl Client {
             return Err(Error::new(format!("HTTP {}: {}", status, text)));
         }
 
-        let body = response.json::<R>().await.map_err(|e| {
-            println!("Error parsing response: {:#?}", e);
-            Error::from(e)
-        })?;
+        let body = response.json::<R>().await.map_err(Error::from)?;
 
         Ok((body, status))
     }
@@ -84,7 +80,7 @@ impl Client {
 
         loop {
             let client_id = self.client_id.read().await.clone();
-            let result = Self::get_json(SOUNDCLOUD_API_URL, Some(path), query, &client_id).await;
+            let result = self.get_json(SOUNDCLOUD_API_URL, Some(path), query, &client_id).await;
 
             match result {
                 Ok((body, _status)) => {
@@ -98,9 +94,6 @@ impl Client {
                         && retries < max_retries
                     {
                         retries += 1;
-                        println!(
-                            "Received 401, refreshing client_id and retrying (attempt {retries}/{max_retries})"
-                        );
                         self.refresh_client_id().await?;
                         continue;
                     }
@@ -111,8 +104,8 @@ impl Client {
         }
     }
 
-    async fn get_script_urls() -> Result<Vec<String>, Error> {
-        let response = reqwest::get(SOUNDCLOUD_URL).await?;
+    async fn get_script_urls(client: &reqwest::Client) -> Result<Vec<String>, Error> {
+        let response = client.get(SOUNDCLOUD_URL).send().await?;
         let text = response.text().await?;
         let re = Regex::new(r#"https?://[^\s"]+\.js"#).expect("Failed to find script URLs");
         let urls: Vec<String> = re
@@ -123,8 +116,8 @@ impl Client {
         Ok(urls)
     }
 
-    async fn find_client_id(url: String) -> Result<Option<String>, Error> {
-        let response = reqwest::get(url).await?;
+    async fn find_client_id(client: reqwest::Client, url: String) -> Result<Option<String>, Error> {
+        let response = client.get(url).send().await?;
         let text = response.text().await?;
         let re = Regex::new(r#"client_id[:=]"?(\w{32})"#).expect("Failed to find client ID");
         if let Some(cap) = re.captures_iter(&text).next() {
@@ -133,11 +126,11 @@ impl Client {
         Ok(None)
     }
 
-    async fn get_client_id() -> Result<String, Error> {
-        let script_urls = Self::get_script_urls().await?;
+    async fn get_client_id(client: &reqwest::Client) -> Result<String, Error> {
+        let script_urls = Self::get_script_urls(client).await?;
         let mut set = tokio::task::JoinSet::new();
         for url in script_urls {
-            set.spawn(Self::find_client_id(url));
+            set.spawn(Self::find_client_id(client.clone(), url));
         }
         while let Some(res) = set.join_next().await {
             if let Ok(Ok(Some(client_id))) = res {
@@ -148,9 +141,21 @@ impl Client {
         Err(Error::new("Client ID not found"))
     }
 
-    /// Health check endpoint that calls /me on the API
+    /// Health check endpoint that checks if the current client_id is valid
     /// Returns true if the API responds successfully (2xx), false otherwise
     pub async fn health_check(&self) -> bool {
-        self.get::<(), Value>("me", None).await.is_ok()
+        #[derive(serde::Serialize)]
+        struct ResolveQuery {
+            url: String,
+        }
+        
+        self.get::<ResolveQuery, Value>(
+            "resolve",
+            Some(&ResolveQuery {
+                url: "https://soundcloud.com/soundcloud".to_string(),
+            }),
+        )
+        .await
+        .is_ok()
     }
 }

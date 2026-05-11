@@ -25,4 +25,14 @@ impl fmt::Display for Identifier {
 pub struct Client {
     pub client_id: RwLock<String>,
     pub retry_config: RetryConfig,
+    pub http_client: reqwest::Client,
+}
+impl Client {
+    pub fn with_client_id(client_id: String, retry_config: RetryConfig) -> Self {
+        Self {
+            client_id: RwLock::new(client_id),
+            retry_config,
+            http_client: reqwest::Client::new(),
+        }
+    }
 }
