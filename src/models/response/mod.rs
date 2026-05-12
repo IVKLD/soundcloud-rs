@@ -6,10 +6,9 @@ mod users;
 pub use playlists::*;
 pub use reposts::*;
 pub use search::*;
+use serde::{Deserialize, Serialize};
 pub use tracks::*;
 pub use users::*;
-
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct PagingCollection<T> {

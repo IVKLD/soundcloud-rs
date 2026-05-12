@@ -1,4 +1,8 @@
-use crate::{Client, models::error::Error, models::query::AlbumQuery, response::Playlists};
+use crate::{
+    Client,
+    models::{error::Error, query::AlbumQuery},
+    response::Playlists,
+};
 
 impl Client {
     pub async fn search_albums(&self, query: Option<&AlbumQuery>) -> Result<Playlists, Error> {

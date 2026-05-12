@@ -1,13 +1,16 @@
-use ffmpeg_sidecar::command::FfmpegCommand;
-use ffmpeg_sidecar::download;
 use std::path::{Path, PathBuf};
 
-use crate::models::client::Client;
-use crate::models::client::Identifier;
-use crate::models::error::Error;
-use crate::models::query::{Paging, TracksQuery};
-use crate::models::response::{Track, Tracks};
-use crate::response::{Stream, StreamType, Transcoding, Waveform};
+use ffmpeg_sidecar::{command::FfmpegCommand, download};
+
+use crate::{
+    models::{
+        client::{Client, Identifier},
+        error::Error,
+        query::{Paging, TracksQuery},
+        response::{Track, Tracks},
+    },
+    response::{Stream, StreamType, Transcoding, Waveform},
+};
 
 impl Client {
     pub async fn search_tracks(&self, query: Option<&TracksQuery>) -> Result<Tracks, Error> {
@@ -143,8 +146,9 @@ impl Client {
             }
 
             if let Some(path) = t.url.as_ref() {
-                if let Ok((stream, _)) =
-                    self.get_json::<Stream, _>(path, None, None::<&()>, &client_id).await
+                if let Ok((stream, _)) = self
+                    .get_json::<Stream, _>(path, None, None::<&()>, &client_id)
+                    .await
                 {
                     if stream.url.is_some() {
                         return Ok(t.clone());

@@ -3,10 +3,10 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::constants::{SOUNDCLOUD_API_URL, SOUNDCLOUD_URL};
-use crate::models::client::Client;
-use crate::models::config::RetryConfig;
-use crate::models::error::Error;
+use crate::{
+    constants::{SOUNDCLOUD_API_URL, SOUNDCLOUD_URL},
+    models::{client::Client, config::RetryConfig, error::Error},
+};
 
 impl Client {
     pub async fn new() -> Result<Self, Error> {
@@ -80,7 +80,9 @@ impl Client {
 
         loop {
             let client_id = self.client_id.read().await.clone();
-            let result = self.get_json(SOUNDCLOUD_API_URL, Some(path), query, &client_id).await;
+            let result = self
+                .get_json(SOUNDCLOUD_API_URL, Some(path), query, &client_id)
+                .await;
 
             match result {
                 Ok((body, _status)) => {
@@ -148,7 +150,7 @@ impl Client {
         struct ResolveQuery {
             url: String,
         }
-        
+
         self.get::<ResolveQuery, Value>(
             "resolve",
             Some(&ResolveQuery {

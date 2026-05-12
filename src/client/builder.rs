@@ -1,6 +1,4 @@
-use crate::models::client::Client;
-use crate::models::config::RetryConfig;
-use crate::models::error::Error;
+use crate::models::{client::Client, config::RetryConfig, error::Error};
 
 #[derive(Debug, Default)]
 pub struct ClientBuilder {

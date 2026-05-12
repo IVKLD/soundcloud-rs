@@ -1,8 +1,9 @@
-use crate::models::client::Client;
-use crate::models::client::Identifier;
-use crate::models::error::Error;
-use crate::models::query::{Paging, UsersQuery};
-use crate::models::response::{Playlists, Reposts, Tracks, User, Users};
+use crate::models::{
+    client::{Client, Identifier},
+    error::Error,
+    query::{Paging, UsersQuery},
+    response::{Playlists, Reposts, Tracks, User, Users},
+};
 
 impl Client {
     pub async fn search_users(&self, query: Option<&UsersQuery>) -> Result<Users, Error> {

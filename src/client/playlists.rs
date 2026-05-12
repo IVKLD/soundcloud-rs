@@ -1,9 +1,11 @@
-use crate::models::client::Client;
-use crate::models::client::Identifier;
-use crate::models::error::Error;
-use crate::models::query::{Paging, PlaylistsQuery};
-use crate::models::response::{Playlist, Playlists, Users};
 use std::path::PathBuf;
+
+use crate::models::{
+    client::{Client, Identifier},
+    error::Error,
+    query::{Paging, PlaylistsQuery},
+    response::{Playlist, Playlists, Users},
+};
 
 impl Client {
     pub async fn search_playlists(
