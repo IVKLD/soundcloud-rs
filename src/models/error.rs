@@ -31,7 +31,11 @@ impl Error {
 // REQUIRED: std::error::Error requires Display to be implemented
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
+        if let Some(ref src) = self.source {
+            write!(f, "{}: {src}", self.message)
+        } else {
+            write!(f, "{}", self.message)
+        }
     }
 }
 

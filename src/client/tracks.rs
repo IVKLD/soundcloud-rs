@@ -129,35 +129,26 @@ impl Client {
             .as_ref()
             .expect("Missing transcodings");
 
-        if transcodings.is_empty() {
-            return Err(Error::new("No available download options"));
-        }
-
-        let client_id = self.get_client_id_value().await;
-
+        let mut has_snipped = false;
         for t in transcodings {
-            let protocol = match t.format.as_ref().and_then(|f| f.protocol.as_ref()) {
-                Some(p) => p,
-                None => continue,
-            };
-
-            if *protocol != *stream_type {
-                continue;
-            }
-
-            if let Some(path) = t.url.as_ref() {
-                if let Ok((stream, _)) = self
-                    .get_json::<Stream, _>(path, None, None::<&()>, &client_id)
-                    .await
-                {
-                    if stream.url.is_some() {
+            if let Some(ref format) = t.format {
+                if format.protocol.as_ref() == Some(stream_type) {
+                    if t.snipped.unwrap_or(false) {
+                        has_snipped = true;
+                    } else {
                         return Ok(t.clone());
                     }
                 }
             }
         }
 
-        Err(Error::new("No available download options"))
+        if has_snipped {
+            Err(Error::new(
+                "Track is a premium Go+ track (only preview snippet is available)",
+            ))
+        } else {
+            Err(Error::new("No available download options"))
+        }
     }
 
     async fn download_progressive(
@@ -174,11 +165,16 @@ impl Client {
     async fn download_hls(&self, stream_url: &str, output_path: &Path) -> Result<(), Error> {
         let stream_url = stream_url.to_string();
         let output_path = output_path.to_path_buf();
+        let proxy_url = self.proxy_url.clone();
 
         tokio::task::spawn_blocking(move || {
             download::auto_download()
                 .map_err(|e| Error::new(format!("FFmpeg download failed: {}", e)))?;
-            let status = FfmpegCommand::new()
+            let mut ffmpeg = FfmpegCommand::new();
+            if let Some(ref proxy) = proxy_url {
+                ffmpeg.arg("-http_proxy").arg(proxy);
+            }
+            let status = ffmpeg
                 .input(&stream_url)
                 .output(
                     output_path

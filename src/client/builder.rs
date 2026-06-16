@@ -4,6 +4,7 @@ use crate::models::{client::Client, config::RetryConfig, error::Error};
 pub struct ClientBuilder {
     retry_config: RetryConfig,
     client_id: Option<String>,
+    proxy_url: Option<String>,
 }
 
 impl ClientBuilder {
@@ -30,12 +31,13 @@ impl ClientBuilder {
         self
     }
 
+    pub fn with_proxy(mut self, proxy_url: String) -> Self {
+        self.proxy_url = Some(proxy_url);
+        self
+    }
+
     /// Build the Client with the configured settings.
     pub async fn build(self) -> Result<Client, Error> {
-        if let Some(id) = self.client_id {
-            Ok(Client::with_client_id(id, self.retry_config))
-        } else {
-            Client::with_retry_config(self.retry_config).await
-        }
+        Client::new_with_options(self.client_id, self.retry_config, self.proxy_url).await
     }
 }

@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 
 use crate::models::config::RetryConfig;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum Identifier {
     Id(i64),
@@ -27,13 +27,5 @@ pub struct Client {
     pub client_id: RwLock<String>,
     pub retry_config: RetryConfig,
     pub http_client: reqwest::Client,
-}
-impl Client {
-    pub fn with_client_id(client_id: String, retry_config: RetryConfig) -> Self {
-        Self {
-            client_id: RwLock::new(client_id),
-            retry_config,
-            http_client: reqwest::Client::new(),
-        }
-    }
+    pub proxy_url: Option<String>,
 }

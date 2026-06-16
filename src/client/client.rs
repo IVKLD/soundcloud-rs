@@ -10,16 +10,30 @@ use crate::{
 
 impl Client {
     pub async fn new() -> Result<Self, Error> {
-        Self::with_retry_config(RetryConfig::default()).await
+        Self::new_with_options(None, RetryConfig::default(), None).await
     }
 
-    pub async fn with_retry_config(retry_config: RetryConfig) -> Result<Self, Error> {
-        let http_client = reqwest::Client::new();
-        let client_id = Self::get_client_id(&http_client).await?;
+    pub async fn new_with_options(
+        client_id: Option<String>,
+        retry_config: RetryConfig,
+        proxy_url: Option<String>,
+    ) -> Result<Self, Error> {
+        let mut builder = reqwest::Client::builder();
+        if let Some(ref proxy) = proxy_url {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
+        let http_client = builder.build()?;
+
+        let client_id = match client_id {
+            Some(id) => id,
+            None => Self::get_client_id(&http_client).await?,
+        };
+
         Ok(Self {
             client_id: RwLock::new(client_id),
             retry_config,
             http_client,
+            proxy_url,
         })
     }
 
