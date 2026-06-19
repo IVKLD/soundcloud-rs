@@ -181,7 +181,7 @@ impl Client {
                         .to_str()
                         .expect("Failed to convert output path to string"),
                 )
-                .args(["-c", "copy"])
+                .args(["-codec:a", "libmp3lame", "-q:a", "2"])
                 .spawn()
                 .map_err(|e| Error::new(format!("FFmpeg spawn failed: {}", e)))?
                 .wait()
