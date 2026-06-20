@@ -76,7 +76,10 @@ impl Client {
 
         if !response.status().is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(Error::new(format!("HTTP {}: {}", status, text)));
+            return Err(Error::with_status(
+                status,
+                format!("HTTP {}: {}", status, text),
+            ));
         }
 
         let body = response.json::<R>().await.map_err(Error::from)?;
@@ -103,17 +106,11 @@ impl Client {
                     return Ok(body);
                 }
                 Err(e) => {
-                    let error_msg = e.to_string();
-                    // Check if we got a 401 and should retry
-                    if error_msg.contains("401")
-                        && self.retry_config.retry_on_401
-                        && retries < max_retries
-                    {
+                    if e.is_status(401) && self.retry_config.retry_on_401 && retries < max_retries {
                         retries += 1;
                         self.refresh_client_id().await?;
                         continue;
                     }
-                    // For non-401 errors or if we've exhausted retries, return the error
                     return Err(e);
                 }
             }

@@ -67,7 +67,7 @@ impl Client {
             Identifier::Urn(urn) => urn
                 .split(':')
                 .last()
-                .expect("Could not extract ID from URN")
+                .ok_or_else(|| Error::new("Could not extract ID from URN"))?
                 .to_owned(),
         };
         let url = format!("stream/users/{}/reposts", id);

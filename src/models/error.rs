@@ -5,6 +5,7 @@ use std::fmt;
 pub struct Error {
     message: String,
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    http_status: Option<u16>,
 }
 
 impl Error {
@@ -13,7 +14,20 @@ impl Error {
         Self {
             message: msg.into(),
             source: None,
+            http_status: None,
         }
+    }
+
+    pub fn with_status(status: u16, msg: impl Into<String>) -> Self {
+        Self {
+            message: msg.into(),
+            source: None,
+            http_status: Some(status),
+        }
+    }
+
+    pub fn is_status(&self, code: u16) -> bool {
+        self.http_status == Some(code)
     }
 
     /// Create an error from another error with a message
@@ -24,6 +38,7 @@ impl Error {
         Self {
             message: msg.into(),
             source: Some(Box::new(source)),
+            http_status: None,
         }
     }
 }

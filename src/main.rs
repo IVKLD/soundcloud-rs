@@ -21,6 +21,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let first_track_id = first_track.id.expect("No track id found");
     client
         .download_track(
+            first_track,
             &Identifier::Id(first_track_id),
             None,
             Some("./downloads"),

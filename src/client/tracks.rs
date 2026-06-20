@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use ffmpeg_sidecar::{command::FfmpegCommand, download};
 
@@ -11,6 +14,16 @@ use crate::{
     },
     response::{Stream, StreamType, Transcoding, Waveform},
 };
+
+static FFMPEG_READY: OnceLock<Result<(), String>> = OnceLock::new();
+
+fn ensure_ffmpeg() -> Result<(), Error> {
+    let result = FFMPEG_READY.get_or_init(|| download::auto_download().map_err(|e| format!("{e}")));
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) => Err(Error::new(format!("FFmpeg not available: {e}"))),
+    }
+}
 
 impl Client {
     pub async fn search_tracks(&self, query: Option<&TracksQuery>) -> Result<Tracks, Error> {
@@ -37,23 +50,19 @@ impl Client {
     pub async fn download_track(
         &self,
         track: &Track,
-        identifier: &Identifier,
+        _identifier: &Identifier,
         stream_type: Option<&StreamType>,
         destination: Option<&str>,
         filename: Option<&str>,
     ) -> Result<(), Error> {
-        let stream = match stream_type {
-            Some(stream_type) => stream_type,
-            None => &StreamType::Progressive,
-        };
-
-        if track.title.is_none() {
-            return Err(Error::new("Track title is missing"));
-        }
+        let stream = stream_type.unwrap_or(&StreamType::Progressive);
 
         let title = match filename {
             Some(filename) => filename,
-            None => track.title.as_ref().expect("Missing track title"),
+            None => track
+                .title
+                .as_deref()
+                .ok_or_else(|| Error::new("Track title is missing"))?,
         };
 
         let output_path = match destination {
@@ -66,20 +75,18 @@ impl Client {
             }
         }
 
-        let transcoding = self.get_transcoding_by_stream_type(&track, stream).await?;
-        let stream_url = self.get_stream_url(identifier, Some(stream)).await?;
+        let transcoding = self.get_transcoding_by_stream_type(track, stream).await?;
+        let stream_url = self.resolve_transcoding_url(&transcoding).await?;
 
-        match transcoding
+        let protocol = transcoding
             .format
             .as_ref()
-            .expect("Missing transcoding format")
-            .protocol
-            .as_ref()
-        {
-            Some(StreamType::Progressive) => {
-                self.download_progressive(&stream_url, &output_path).await?
-            }
-            Some(StreamType::Hls) => self.download_hls(&stream_url, &output_path).await?,
+            .and_then(|f| f.protocol.as_ref())
+            .ok_or_else(|| Error::new("Missing transcoding format/protocol"))?;
+
+        match protocol {
+            StreamType::Progressive => self.download_progressive(&stream_url, &output_path).await?,
+            StreamType::Hls => self.download_hls_to_file(&stream_url, &output_path).await?,
             _ => return Err(Error::new("Invalid Stream Type")),
         }
 
@@ -88,23 +95,39 @@ impl Client {
 
     pub async fn get_track_waveform(&self, identifier: &Identifier) -> Result<Waveform, Error> {
         let track = self.get_track(identifier).await?;
-        let waveform_url = track.waveform_url.as_ref().expect("Missing waveform URL");
+        let waveform_url = track
+            .waveform_url
+            .as_ref()
+            .ok_or_else(|| Error::new("Missing waveform URL"))?;
         let response = self.http_client.get(waveform_url).send().await?;
         let waveform: Waveform = response.json::<Waveform>().await?;
         Ok(waveform)
     }
 
+    /// Resolve stream URL from an already-fetched Track without re-fetching it.
+    pub async fn resolve_stream_url_from_track(
+        &self,
+        track: &Track,
+        stream_type: Option<&StreamType>,
+    ) -> Result<String, Error> {
+        let stream = stream_type.unwrap_or(&StreamType::Progressive);
+        let transcoding = self.get_transcoding_by_stream_type(track, stream).await?;
+        self.resolve_transcoding_url(&transcoding).await
+    }
+
+    /// Resolve stream URL by fetching the track first. Prefer `resolve_stream_url_from_track`
+    /// if you already have the Track object to avoid a redundant HTTP request.
     pub async fn get_stream_url(
         &self,
         identifier: &Identifier,
         stream_type: Option<&StreamType>,
     ) -> Result<String, Error> {
         let track = self.get_track(identifier).await?;
-        let stream = match stream_type {
-            Some(stream_type) => stream_type,
-            None => &StreamType::Progressive,
-        };
-        let transcoding = self.get_transcoding_by_stream_type(&track, stream).await?;
+        self.resolve_stream_url_from_track(&track, stream_type)
+            .await
+    }
+
+    async fn resolve_transcoding_url(&self, transcoding: &Transcoding) -> Result<String, Error> {
         let path = transcoding
             .url
             .as_ref()
@@ -124,25 +147,21 @@ impl Client {
         let transcodings = track
             .media
             .as_ref()
-            .expect("Missing media")
-            .transcodings
-            .as_ref()
-            .expect("Missing transcodings");
+            .and_then(|m| m.transcodings.as_ref())
+            .ok_or_else(|| Error::new("Missing media transcodings"))?;
 
-        let mut has_snipped = false;
-        for t in transcodings {
-            if let Some(ref format) = t.format {
-                if format.protocol.as_ref() == Some(stream_type) {
-                    if t.snipped.unwrap_or(false) {
-                        has_snipped = true;
-                    } else {
-                        return Ok(t.clone());
-                    }
-                }
-            }
+        let mut filtered = transcodings.iter().filter(|t| {
+            t.format
+                .as_ref()
+                .and_then(|f| f.protocol.as_ref())
+                .map_or(false, |p| p == stream_type)
+        });
+
+        if let Some(non_snipped) = filtered.clone().find(|t| !t.snipped.unwrap_or(false)) {
+            return Ok(non_snipped.clone());
         }
 
-        if has_snipped {
+        if filtered.any(|t| t.snipped.unwrap_or(false)) {
             Err(Error::new(
                 "Track is a premium Go+ track (only preview snippet is available)",
             ))
@@ -162,38 +181,42 @@ impl Client {
         Ok(())
     }
 
-    async fn download_hls(&self, stream_url: &str, output_path: &Path) -> Result<(), Error> {
+    /// Download an HLS stream to an MP3 file using FFmpeg.
+    /// `stream_url` should be an already-resolved HLS playlist URL.
+    pub async fn download_hls_to_file(
+        &self,
+        stream_url: &str,
+        output_path: &Path,
+    ) -> Result<(), Error> {
         let stream_url = stream_url.to_string();
         let output_path = output_path.to_path_buf();
         let proxy_url = self.proxy_url.clone();
 
         tokio::task::spawn_blocking(move || {
-            download::auto_download()
-                .map_err(|e| Error::new(format!("FFmpeg download failed: {}", e)))?;
+            ensure_ffmpeg()?;
+            let output_str = output_path
+                .to_str()
+                .ok_or_else(|| Error::new("Output path contains invalid UTF-8"))?;
             let mut ffmpeg = FfmpegCommand::new();
             if let Some(ref proxy) = proxy_url {
                 ffmpeg.arg("-http_proxy").arg(proxy);
             }
             let status = ffmpeg
                 .input(&stream_url)
-                .output(
-                    output_path
-                        .to_str()
-                        .expect("Failed to convert output path to string"),
-                )
+                .output(output_str)
                 .args(["-codec:a", "libmp3lame", "-q:a", "2"])
                 .spawn()
-                .map_err(|e| Error::new(format!("FFmpeg spawn failed: {}", e)))?
+                .map_err(|e| Error::new(format!("FFmpeg spawn failed: {e}")))?
                 .wait()
-                .map_err(|e| Error::new(format!("FFmpeg wait failed: {}", e)))?;
+                .map_err(|e| Error::new(format!("FFmpeg wait failed: {e}")))?;
 
             if !status.success() {
-                return Err(Error::new("Download HLS Failed"));
+                return Err(Error::new("HLS download failed"));
             }
             Ok(())
         })
         .await
-        .map_err(|e| Error::new(format!("Tokio spawn_blocking failed: {}", e)))??;
+        .map_err(|e| Error::new(format!("Tokio spawn_blocking failed: {e}")))??;
 
         Ok(())
     }

@@ -13,4 +13,6 @@ pub use users::*;
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct PagingCollection<T> {
     pub collection: Vec<T>,
+    #[serde(default)]
+    pub next_href: Option<String>,
 }

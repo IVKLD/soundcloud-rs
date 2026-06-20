@@ -42,7 +42,10 @@ impl Client {
 
         let playlist_title = match playlist_name {
             Some(playlist_name) => playlist_name,
-            None => playlist.title.as_ref().expect("Missing playlist title"),
+            None => playlist
+                .title
+                .as_deref()
+                .ok_or_else(|| Error::new("Missing playlist title"))?,
         };
 
         let output_path = match destination {
@@ -55,16 +58,21 @@ impl Client {
 
         let output_path_str = output_path
             .to_str()
-            .expect("Failed to convert output path to string");
+            .ok_or_else(|| Error::new("Output path contains invalid UTF-8"))?;
 
-        let tracks = playlist.tracks.as_ref().expect("Missing tracks");
+        let tracks = playlist
+            .tracks
+            .as_ref()
+            .ok_or_else(|| Error::new("Missing tracks in playlist"))?;
         for track in tracks {
-            let identifier = track.id.as_ref().expect("Missing track id");
+            let identifier = track
+                .id
+                .ok_or_else(|| Error::new("Missing track id in playlist"))?;
 
             if let Err(e) = self
                 .download_track(
                     &track,
-                    &Identifier::Id(*identifier),
+                    &Identifier::Id(identifier),
                     None,
                     Some(output_path_str),
                     None,
