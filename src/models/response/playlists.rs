@@ -7,7 +7,7 @@ pub type Playlists = PagingCollection<Playlist>;
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Playlist {
     pub title: Option<String>,
-    pub id: Option<i32>,
+    pub id: Option<i64>,
     pub urn: Option<String>,
     pub kind: Option<String>,
     pub artwork_url: Option<String>,
@@ -18,7 +18,7 @@ pub struct Playlist {
     pub ean: Option<String>,
     pub embeddable_by: Option<String>,
     pub genre: Option<String>,
-    pub label_id: Option<i32>,
+    pub label_id: Option<i64>,
     pub label_name: Option<String>,
     pub last_modified: Option<String>,
     pub license: Option<String>,
@@ -39,7 +39,7 @@ pub struct Playlist {
     pub r#type: Option<String>,
     pub uri: Option<String>,
     pub user: Option<UserSummary>,
-    pub user_id: Option<i32>,
+    pub user_id: Option<i64>,
     pub user_urn: Option<String>,
     pub likes_count: Option<i32>,
     pub label: Option<UserSummary>,
