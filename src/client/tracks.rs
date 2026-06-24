@@ -18,6 +18,9 @@ use crate::{
 static FFMPEG_READY: OnceLock<Result<(), String>> = OnceLock::new();
 
 fn ensure_ffmpeg() -> Result<(), Error> {
+    if ffmpeg_sidecar::command::ffmpeg_is_installed() {
+        return Ok(());
+    }
     let result = FFMPEG_READY.get_or_init(|| download::auto_download().map_err(|e| format!("{e}")));
     match result {
         Ok(()) => Ok(()),
