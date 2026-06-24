@@ -1,8 +1,8 @@
 use crate::models::{
     client::{Client, Identifier},
     error::Error,
-    query::{Paging, UsersQuery},
-    response::{Playlists, Reposts, Tracks, User, Users},
+    query::{Paging, UserTrackLikesQuery, UsersQuery},
+    response::{Playlists, Reposts, Tracks, User, UserTrackLikes, Users},
 };
 
 impl Client {
@@ -72,6 +72,16 @@ impl Client {
         };
         let url = format!("stream/users/{}/reposts", id);
         let resp: Reposts = self.get(&url, pagination).await?;
+        Ok(resp)
+    }
+
+    pub async fn get_user_track_likes(
+        &self,
+        identifier: &Identifier,
+        query: Option<&UserTrackLikesQuery>,
+    ) -> Result<UserTrackLikes, Error> {
+        let url = format!("users/{identifier}/track_likes");
+        let resp: UserTrackLikes = self.get(&url, query).await?;
         Ok(resp)
     }
 }

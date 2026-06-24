@@ -154,19 +154,10 @@ impl Client {
         Err(Error::new("Client ID not found"))
     }
 
-    /// Health check endpoint that checks if the current client_id is valid
-    /// Returns true if the API responds successfully (2xx), false otherwise
     pub async fn health_check(&self) -> bool {
-        #[derive(serde::Serialize)]
-        struct ResolveQuery {
-            url: String,
-        }
-
-        self.get::<ResolveQuery, Value>(
+        self.get::<_, Value>(
             "resolve",
-            Some(&ResolveQuery {
-                url: "https://soundcloud.com/soundcloud".to_string(),
-            }),
+            Some(&[("url", "https://soundcloud.com/soundcloud")]),
         )
         .await
         .is_ok()

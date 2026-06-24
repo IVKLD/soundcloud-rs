@@ -1,8 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::response::PagingCollection;
+use crate::models::response::{PagingCollection, tracks::Track};
 
 pub type Users = PagingCollection<User>;
+pub type UserTrackLikes = PagingCollection<LikeItem>;
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct LikeItem {
+    pub track: Option<Track>,
+}
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct User {

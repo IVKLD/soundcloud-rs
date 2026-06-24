@@ -9,3 +9,9 @@ pub struct UsersQuery {
     pub offset: Option<i32>,
     pub linked_partitioning: Option<bool>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct UserTrackLikesQuery {
+    pub limit: Option<u32>,
+    pub offset: Option<String>,
+}

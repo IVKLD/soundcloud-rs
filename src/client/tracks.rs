@@ -220,4 +220,20 @@ impl Client {
 
         Ok(())
     }
+
+    pub async fn get_tracks(&self, ids: &[i64]) -> Result<Vec<Track>, Error> {
+        let ids_str = ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        #[derive(serde::Serialize)]
+        struct GetTracksQuery {
+            ids: String,
+        }
+
+        self.get("tracks", Some(&GetTracksQuery { ids: ids_str }))
+            .await
+    }
 }
