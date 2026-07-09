@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use regex::Regex;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -5,7 +7,11 @@ use tokio::sync::RwLock;
 
 use crate::{
     constants::{SOUNDCLOUD_API_URL, SOUNDCLOUD_URL},
-    models::{client::Client, config::RetryConfig, error::Error},
+    models::{
+        client::{Client, ProxyUrlProvider},
+        config::RetryConfig,
+        error::Error,
+    },
 };
 
 impl Client {
@@ -18,27 +24,70 @@ impl Client {
         retry_config: RetryConfig,
         proxy_url: Option<String>,
     ) -> Result<Self, Error> {
-        let mut builder = reqwest::Client::builder();
-        if let Some(ref proxy) = proxy_url {
-            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
-        }
-        let http_client = builder.build()?;
+        let http_client = Self::build_http_client(proxy_url.as_deref())?;
 
         let client_id = match client_id {
             Some(id) => id,
             None => Self::get_client_id(&http_client).await?,
         };
 
+        let active_proxy = proxy_url.clone();
+
         Ok(Self {
             client_id: RwLock::new(client_id),
             retry_config,
-            http_client,
+            http_client: RwLock::new(http_client),
             proxy_url,
+            proxy_provider: None,
+            active_proxy: RwLock::new(active_proxy),
         })
     }
 
+    /// Attach a dynamic proxy provider. Each request will check if the provider
+    /// returns a different URL than the one the current `http_client` was built
+    /// with, and rebuild the client transparently if so.
+    pub fn with_proxy_provider(mut self, provider: ProxyUrlProvider) -> Self {
+        self.proxy_provider = Some(provider);
+        self
+    }
+
+    fn build_http_client(proxy_url: Option<&str>) -> Result<reqwest::Client, Error> {
+        let mut builder = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30));
+        if let Some(proxy) = proxy_url {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
+        builder.build().map_err(Error::from)
+    }
+
+    /// If a `proxy_provider` is set, check whether the proxy URL it returns
+    /// differs from the one the current HTTP client was built with. If so,
+    /// rebuild the HTTP client so the next request uses the updated proxy.
+    pub(crate) async fn ensure_proxy_refreshed(&self) {
+        let Some(ref provider) = self.proxy_provider else {
+            return;
+        };
+        let desired = (provider.0)();
+        let current = self.active_proxy.read().await.clone();
+        if desired == current {
+            return;
+        }
+        match Self::build_http_client(desired.as_deref()) {
+            Ok(new_client) => {
+                *self.http_client.write().await = new_client;
+                *self.active_proxy.write().await = desired;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to rebuild HTTP client with new proxy: {e}");
+            }
+        }
+    }
+
     pub async fn refresh_client_id(&self) -> Result<(), Error> {
-        let new_client_id = Self::get_client_id(&self.http_client).await?;
+        self.ensure_proxy_refreshed().await;
+        let http = self.http_client.read().await;
+        let new_client_id = Self::get_client_id(&http).await?;
         *self.client_id.write().await = new_client_id;
         Ok(())
     }
@@ -47,13 +96,20 @@ impl Client {
         self.client_id.read().await.clone()
     }
 
+    /// Returns the currently-active proxy URL (may differ from `proxy_url`
+    /// if a `proxy_provider` was attached and has returned a new value).
+    pub async fn current_proxy_url(&self) -> Option<String> {
+        self.active_proxy.read().await.clone()
+    }
+
     pub async fn get_json<R: DeserializeOwned, Q: Serialize>(
         &self,
         base_url: &str,
         path: Option<&str>,
         query: Option<&Q>,
-        client_id: &str,
     ) -> Result<(R, u16), Error> {
+        self.ensure_proxy_refreshed().await;
+
         let url = match path {
             Some(path) => format!(
                 "{}/{}",
@@ -63,12 +119,14 @@ impl Client {
             None => base_url.to_string(),
         };
 
-        let mut request = self.http_client.get(&url);
+        let http = self.http_client.read().await;
+        let mut request = http.get(&url);
 
         if let Some(q) = query {
             request = request.query(q);
         }
-        request = request.query(&[("client_id", client_id)]);
+        let client_id = self.client_id.read().await;
+        request = request.query(&[("client_id", &*client_id)]);
 
         let response = request.send().await.map_err(Error::from)?;
 
@@ -96,10 +154,7 @@ impl Client {
         let max_retries = self.retry_config.max_retries;
 
         loop {
-            let client_id = self.client_id.read().await.clone();
-            let result = self
-                .get_json(SOUNDCLOUD_API_URL, Some(path), query, &client_id)
-                .await;
+            let result = self.get_json(SOUNDCLOUD_API_URL, Some(path), query).await;
 
             match result {
                 Ok((body, _status)) => {

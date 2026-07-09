@@ -102,7 +102,8 @@ impl Client {
             .waveform_url
             .as_ref()
             .ok_or_else(|| Error::new("Missing waveform URL"))?;
-        let response = self.http_client.get(waveform_url).send().await?;
+        let http = self.http_client.read().await;
+        let response = http.get(waveform_url).send().await?;
         let waveform: Waveform = response.json::<Waveform>().await?;
         Ok(waveform)
     }
@@ -135,8 +136,7 @@ impl Client {
             .url
             .as_ref()
             .ok_or_else(|| Error::new("Missing transcoding URL"))?;
-        let client_id = self.get_client_id_value().await;
-        let (stream, _): (Stream, _) = self.get_json(path, None, None::<&()>, &client_id).await?;
+        let (stream, _): (Stream, _) = self.get_json(path, None, None::<&()>).await?;
         stream
             .url
             .ok_or_else(|| Error::new("Missing resolved stream URL"))
@@ -178,7 +178,8 @@ impl Client {
         stream_url: &str,
         output_path: &Path,
     ) -> Result<(), Error> {
-        let response = self.http_client.get(stream_url).send().await?;
+        let http = self.http_client.read().await;
+        let response = http.get(stream_url).send().await?;
         let bytes = response.bytes().await?;
         tokio::fs::write(output_path, &bytes).await?;
         Ok(())
@@ -193,7 +194,8 @@ impl Client {
     ) -> Result<(), Error> {
         let stream_url = stream_url.to_string();
         let output_path = output_path.to_path_buf();
-        let proxy_url = self.proxy_url.clone();
+        self.ensure_proxy_refreshed().await;
+        let proxy_url = self.current_proxy_url().await;
 
         tokio::task::spawn_blocking(move || {
             ensure_ffmpeg()?;
@@ -204,10 +206,11 @@ impl Client {
             if let Some(ref proxy) = proxy_url {
                 ffmpeg.arg("-http_proxy").arg(proxy);
             }
+            ffmpeg.args(["-rw_timeout", "15000000"]);
             let status = ffmpeg
                 .input(&stream_url)
+                .args(["-codec:a", "libmp3lame", "-q:a", "2", "-f", "mp3"])
                 .output(output_str)
-                .args(["-codec:a", "libmp3lame", "-q:a", "2"])
                 .spawn()
                 .map_err(|e| Error::new(format!("FFmpeg spawn failed: {e}")))?
                 .wait()
