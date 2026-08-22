@@ -209,6 +209,13 @@ impl Client {
         Err(Error::new("Client ID not found"))
     }
 
+    pub async fn resolve_url(
+        &self,
+        url: impl AsRef<str>,
+    ) -> Result<crate::models::response::ResolvedResource, Error> {
+        self.get("resolve", Some(&[("url", url.as_ref())])).await
+    }
+
     pub async fn health_check(&self) -> bool {
         self.get::<_, Value>(
             "resolve",

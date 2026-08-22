@@ -16,3 +16,11 @@ pub struct PagingCollection<T> {
     #[serde(default)]
     pub next_href: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ResolvedResource {
+    User(User),
+    Playlist(Playlist),
+    Track(Track),
+}
