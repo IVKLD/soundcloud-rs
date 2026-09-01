@@ -1,88 +1,94 @@
-# SoundCloud Rust Client
+<p align="center">
+  <h2 align="center">soundcloud-rs</h2>
+</p>
 
-A Rust client for interacting with the SoundCloud API. This library provides an async interface for searching, retrieving, and downloading content from SoundCloud. It automatically discovers a valid `client_id` from SoundCloud, so you don't need to provide one.
+<p align="center">
+  Asynchronous, type-safe Rust client for the SoundCloud API with automatic Client ID discovery, retry resilience, and streaming support.
+  <br>
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/Rust-2024_Edition-orange?style=flat-square&logo=rust" alt="Rust Edition">
+  <img src="https://img.shields.io/badge/SoundCloud-v2_API-ff5500?style=flat-square&logo=soundcloud" alt="SoundCloud">
+</p>
 
-Add the crate to your project:
+---
 
-```bash
-cargo add soundcloud-rs
+## Overview
+
+`soundcloud-rs` provides an idiomatic, non-blocking Rust interface to search, resolve, stream, and download audio tracks from SoundCloud. It automatically discovers and refreshes valid client IDs from public web assets, eliminating the need for manual API key management.
+
+## Features
+
+- **Dynamic Client ID Discovery**: Automatically extracts client IDs and refreshes them upon `401 Unauthorized` responses.
+- **Search & Discovery**: Support for tracks, playlists, albums, artists, reposts, and related tracks.
+- **Stream Resolution**: Resolves direct high-quality audio streams with fallback support for progressive MP3 and HLS streams.
+- **Proxy Support**: Configurable HTTP, HTTPS, and SOCKS5 proxy support.
+- **Async & Non-Blocking**: Built on `tokio` and `reqwest` with connection pooling and configurable retry policies.
+
+---
+
+## Installation
+
+Add to `Cargo.toml`:
+
+```toml
+[dependencies]
+soundcloud-rs = { path = "libs/soundcloud-rs" }
+tokio = { version = "1.53", features = ["full"] }
 ```
 
-## Quickstart
+---
+
+## Usage
+
+### 1. Basic Search and Resolution
 
 ```rust
-use soundcloud_rs::{Client, Identifier, query::TracksQuery, response::StreamType};
+use soundcloud_rs::{Client, query::TracksQuery};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new().await?;
 
-    // Search for tracks
-    let query = TracksQuery { q: Some("electronic".into()), limit: Some(5), ..Default::default() };
-    let tracks = client.search_tracks(Some(&query)).await?;
-    let first_track = tracks.collection.first().expect("no tracks found").clone();
-    let first_track_id = first_track.id.expect("missing track id");
+    let query = TracksQuery {
+        q: Some("Synthwave".into()),
+        limit: Some(5),
+        ..Default::default()
+    };
 
-    // Download the track (HLS via ffmpeg, see notes below)
-    client
-        .download_track(&Identifier::Id(first_track_id), Some(&StreamType::Hls), Some("./downloads"), None)
-        .await?;
+    let tracks = client.search_tracks(Some(&query)).await?;
+    for track in tracks.collection {
+        let title = track.title.unwrap_or_default();
+        let user = track.user.and_then(|u| u.username).unwrap_or_default();
+        println!("Track: {} by {}", title, user);
+    }
 
     Ok(())
 }
 ```
 
-### Advanced: Using ClientBuilder for Custom Retry Configuration
+### 2. ClientBuilder with Proxy and Custom Retries
 
 ```rust
 use soundcloud_rs::{ClientBuilder, Identifier, query::TracksQuery};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a client with custom retry configuration
     let client = ClientBuilder::new()
-        .with_max_retries(3)           // Retry up to 3 times on 401 errors
-        .with_retry_on_401(true)        // Enable automatic retry on 401 Unauthorized
+        .with_proxy("http://127.0.0.1:8080")
+        .with_max_retries(3)
+        .with_retry_on_401(true)
         .build()
         .await?;
 
-    // Use the client as normal
-    let query = TracksQuery { q: Some("electronic".into()), limit: Some(5), ..Default::default() };
-    let tracks = client.search_tracks(Some(&query)).await?;
-    
-    Ok(())
-}
-```
-
-## More Examples
-
-### Search, get, and download a track
-```rust
-use soundcloud_rs::{Client, Identifier, query::TracksQuery, response::StreamType};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new().await?;
-
-    // Search for tracks
-    let query = TracksQuery { q: Some("electronic".to_string()), limit: Some(5), ..Default::default() };
-    let tracks = client.search_tracks(Some(&query)).await?;
-    let first_track = tracks.collection.first().expect("no tracks found").clone();
-
-    // Get a specific track
-    let track_id = first_track.id.expect("missing track id");
-    let track = client.get_track(&Identifier::Id(track_id)).await?;
-
-    // Download the track (Progressive example)
-    client
-        .download_track(&Identifier::Id(track_id), Some(&StreamType::Progressive), Some("./downloads"), None)
-        .await?;
+    let track = client.get_track(&Identifier::Id(123456789)).await?;
+    println!("Found track: {:?}", track.title);
 
     Ok(())
 }
 ```
 
-### Search, fetch, and download a playlist
+### 3. Playlists and Profiles
+
 ```rust
 use soundcloud_rs::{Client, Identifier, query::PlaylistsQuery};
 
@@ -90,159 +96,38 @@ use soundcloud_rs::{Client, Identifier, query::PlaylistsQuery};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new().await?;
 
-    // Search for playlists
-    let query = PlaylistsQuery { q: Some("brazilian funk".to_string()), limit: Some(3), ..Default::default() };
+    let query = PlaylistsQuery {
+        q: Some("Chillout".into()),
+        limit: Some(3),
+        ..Default::default()
+    };
+
     let playlists = client.search_playlists(Some(&query)).await?;
-    let first_playlist = playlists.collection.first().expect("no playlists found").clone();
-
-    // Get a specific playlist
-    let playlist_id = first_playlist.id.expect("missing playlist id");
-    let playlist = client.get_playlist(&Identifier::Id(playlist_id as i64)).await?;
-
-    // Download the playlist
-    client.download_playlist(&Identifier::Id(playlist_id as i64), Some("./downloads"), None).await?;
+    for playlist in playlists.collection {
+        println!("Playlist: {}", playlist.title.unwrap_or_default());
+    }
 
     Ok(())
 }
 ```
 
-### Get user information, followers, tracks, and playlists
-```rust
-use soundcloud_rs::{Client, Identifier, query::Paging};
+---
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new().await?;
+## API Reference
 
-    // Get a specific user
-    let user_id = 123456789;
-    let user = client.get_user(&Identifier::Id(user_id)).await?;
-    println!("User: {}", user.username.unwrap_or_default());
+### Client Operations
+- `Client::new() -> Result<Self, Error>`: Initialize with auto-discovered `client_id`.
+- `ClientBuilder::new() -> Self`: Builder for custom proxy, cached ID, and retry policies.
+- `health_check(&self) -> bool`: Verify connectivity against `/me`.
+- `refresh_client_id(&self) -> Result<(), Error>`: Force client ID redetection.
 
-    // Get user's followers
-    let followers = client.get_user_followers(&Identifier::Id(user_id), None::<&Paging>).await?;
-    println!("User has {} followers", followers.collection.len());
+### Resources
+- **Tracks**: `search_tracks`, `get_track`, `get_track_related`, `get_track_waveform`
+- **Playlists**: `search_playlists`, `get_playlist`, `get_playlist_reposters`
+- **Users**: `search_users`, `get_user`, `get_user_tracks`, `get_user_playlists`, `get_user_followers`
 
-    // Get user's tracks
-    let user_tracks = client.get_user_tracks(&Identifier::Id(user_id), None::<&Paging>).await?;
-    println!("User has {} tracks", user_tracks.collection.len());
-
-    // Get user's playlists
-    let user_playlists = client.get_user_playlists(&Identifier::Id(user_id), None::<&Paging>).await?;
-    println!("User has {} playlists", user_playlists.collection.len());
-
-    Ok(())
-}
-```
-
-## Identifier
-
-The library uses an `Identifier` enum to handle different types of SoundCloud resource identifiers:
-
-```rust
-use soundcloud_rs::Identifier;
-
-// Use numeric ID
-let track_id = Identifier::Id(123456789);
-
-// Use URN (useful for some API endpoints)
-let track_urn = Identifier::Urn("soundcloud:tracks:123456789".to_string());
-```
-
-This provides better type safety and flexibility when working with SoundCloud resources.
-
-## API Overview
-
-### Core Client Methods
-
-#### Creating a Client
-- **`Client::new() -> Result<Self, Error>`**: Initialize the client with default retry configuration by discovering a `client_id`.
-- **`Client::with_retry_config(retry_config: RetryConfig) -> Result<Self, Error>`**: Initialize the client with custom retry configuration.
-
-#### ClientBuilder (Recommended for Custom Configuration)
-- **`ClientBuilder::new() -> Self`**: Create a new builder with default retry configuration.
-- **`with_max_retries(max_retries: u32) -> Self`**: Set the maximum number of retry attempts (default: 1).
-- **`with_retry_on_401(retry_on_401: bool) -> Self`**: Enable or disable retrying on 401 Unauthorized responses (default: true).
-- **`build() -> Result<Client, Error>`**: Build the client with the configured settings.
-
-#### Client Management
-- **`refresh_client_id(&self) -> Result<(), Error>`**: Refresh the client ID by re-discovering it from SoundCloud. Useful if you encounter 401 errors.
-- **`get_client_id_value(&self) -> String`**: Get the current client ID value.
-- **`health_check(&self) -> bool`**: Health check endpoint that calls `/me` on the API. Returns `true` if the API responds successfully (2xx), `false` otherwise.
-
-#### Low-Level API Methods
-- **`get<Q: Serialize, R: DeserializeOwned>(&self, path: &str, query: Option<&Q>) -> Result<R, Error>`**: Perform a GET request against the SoundCloud API.
-- **`get_json<R: DeserializeOwned, Q: Serialize>(base_url: &str, path: Option<&str>, query: Option<&Q>, client_id: &str) -> Result<(R, u16), Error>`**: Static helper to GET JSON from any base URL. Returns both the response body and HTTP status code.
-
-### Search
-- **`get_search_results(query: Option<&SearchResultsQuery>) -> Result<SearchResultsResponse, Error>`**
-- **`search_all(query: Option<&SearchAllQuery>) -> Result<SearchAllResponse, Error>`**
-
-### Tracks
-- **`search_tracks(query: Option<&TracksQuery>) -> Result<Tracks, Error>`**
-- **`get_track(identifier: &Identifier) -> Result<Track, Error>`**
-- **`get_track_related(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Tracks, Error>`**
-- **`download_track(identifier: &Identifier, stream_type: Option<&StreamType>, destination: Option<&str>, filename: Option<&str>) -> Result<(), Error>`**
-- **`get_stream_url(identifier: &Identifier, stream_type: Option<&StreamType>) -> Result<String, Error>`**
-- **`get_track_waveform(identifier: &Identifier) -> Result<Waveform, Error>`**
-
-### Playlists
-- **`search_playlists(query: Option<&PlaylistsQuery>) -> Result<Playlists, Error>`**
-- **`get_playlist(identifier: &Identifier) -> Result<Playlist, Error>`**
-- **`get_playlist_reposters(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Users, Error>`**
-- **`download_playlist(identifier: &Identifier, destination: Option<&str>, playlist_name: Option<&str>) -> Result<(), Error>`**
-
-### Albums
-- **`search_albums(query: Option<&AlbumQuery>) -> Result<Playlists, Error>`**
-
-### Users
-- **`search_users(query: Option<&UsersQuery>) -> Result<Users, Error>`**
-- **`get_user(identifier: &Identifier) -> Result<User, Error>`**
-- **`get_user_followers(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Users, Error>`**
-- **`get_user_followings(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Users, Error>`**
-- **`get_user_playlists(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Playlists, Error>`**
-- **`get_user_tracks(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Tracks, Error>`**
-- **`get_user_reposts(identifier: &Identifier, pagination: Option<&Paging>) -> Result<Reposts, Error>`**
-
-## Retry Configuration
-
-The client supports automatic retry on 401 Unauthorized errors, which can occur when SoundCloud rotates their client IDs. By default, the client will retry once with a refreshed client ID. You can customize this behavior:
-
-```rust
-use soundcloud_rs::ClientBuilder;
-
-let client = ClientBuilder::new()
-    .with_max_retries(3)        // Retry up to 3 times
-    .with_retry_on_401(true)     // Enable retry on 401 (default: true)
-    .build()
-    .await?;
-```
-
-**RetryConfig defaults:**
-- `max_retries`: 1
-- `retry_on_401`: true
-
-When a 401 error occurs, the client will automatically refresh the client ID and retry the request up to `max_retries` times.
-
-## Notes on Downloads and FFmpeg
-- **HLS downloads** use `ffmpeg-sidecar`. On first HLS download, the crate will automatically download an FFmpeg binary for your platform. No manual installation is required.
-- **Progressive downloads** are saved directly without FFmpeg.
-- If your environment blocks downloads or requires proxies, the automatic FFmpeg download may fail; in that case, configure your network accordingly before using HLS.
-
-## Error Handling
-
-The library uses a custom `Error` type that implements `std::error::Error + Send + Sync` for async compatibility. All API methods return `Result<T, Error>`.
-
-```rust
-use soundcloud_rs::{Client, Error};
-
-match client.search_tracks(None).await {
-    Ok(tracks) => println!("Found {} tracks", tracks.collection.len()),
-    Err(e) => eprintln!("Error: {}", e),
-}
-```
-
+---
 
 ## License
 
-MIT
+MIT License.
