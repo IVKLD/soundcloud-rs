@@ -156,9 +156,9 @@ impl Client {
         loop {
             let result = self.get_json(SOUNDCLOUD_API_URL, Some(path), query).await;
 
-            match result {
+            return match result {
                 Ok((body, _status)) => {
-                    return Ok(body);
+                    Ok(body)
                 }
                 Err(e) => {
                     if e.is_status(401) && self.retry_config.retry_on_401 && retries < max_retries {
@@ -166,7 +166,7 @@ impl Client {
                         self.refresh_client_id().await?;
                         continue;
                     }
-                    return Err(e);
+                    Err(e)
                 }
             }
         }
@@ -213,7 +213,21 @@ impl Client {
         &self,
         url: impl AsRef<str>,
     ) -> Result<crate::models::response::ResolvedResource, Error> {
-        self.get("resolve", Some(&[("url", url.as_ref())])).await
+        let url_obj = reqwest::Url::parse(url.as_ref())
+            .map_err(|e| Error::new(format!("Invalid URL: {}", e)))?;
+        let mut target_url = url.as_ref().to_string();
+        if url_obj.host_str() == Some("on.soundcloud.com") {
+            let http = self.http_client.read().await;
+            let request = http.get(&target_url).send().await.map_err(Error::from)?;
+            if !request.status().is_success() {
+                Err(Error::with_status(
+                    request.status().as_u16(),
+                    format!("Failed to resolve on.soundcloud.com URL: {}", target_url),
+                ))?;
+            }
+            target_url = request.url().to_string();
+        }
+        self.get("resolve", Some(&[("url", target_url)])).await
     }
 
     pub async fn health_check(&self) -> bool {

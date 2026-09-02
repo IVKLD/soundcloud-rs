@@ -48,3 +48,28 @@ pub struct Playlist {
     pub monetization_model: Option<String>,
     pub policy: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct SystemPlaylist {
+    pub urn: Option<String>,
+    pub query_urn: Option<String>,
+    pub permalink: Option<String>,
+    pub permalink_url: Option<String>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub short_title: Option<String>,
+    pub short_description: Option<String>,
+    pub tracking_feature_name: Option<String>,
+    pub playlist_type: Option<String>,
+    pub last_updated: Option<String>,
+    pub artwork_url: Option<String>,
+    pub calculated_artwork_url: Option<String>,
+    pub likes_count: Option<i32>,
+    pub seed: Option<serde_json::Value>,
+    pub tracks: Option<Vec<Track>>,
+    pub is_public: Option<bool>,
+    pub made_for: Option<UserSummary>,
+    pub user: Option<UserSummary>,
+    pub kind: Option<String>,
+    pub id: Option<String>,
+}

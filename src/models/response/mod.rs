@@ -23,4 +23,6 @@ pub enum ResolvedResource {
     User(User),
     Playlist(Playlist),
     Track(Track),
+    #[serde(rename = "system-playlist")]
+    SystemPlaylist(SystemPlaylist),
 }
