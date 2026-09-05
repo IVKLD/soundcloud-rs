@@ -1,11 +1,7 @@
-use soundcloud_rs::{
-    Client, Identifier,
-    query::{
-        AlbumQuery, Paging, PlaylistsQuery, SearchAllQuery, SearchResultsQuery, TracksQuery,
-        UsersQuery,
-    },
-    response::{StreamType, Waveform},
-};
+use soundcloud_rs::{query::{
+    AlbumQuery, Paging, PlaylistsQuery, SearchAllQuery, SearchResultsQuery, TracksQuery,
+    UsersQuery,
+}, response::{StreamType, Waveform}, Client, Identifier, ResolvedResource};
 
 // Create a single client instance that will be reused across all tests
 async fn get_client() -> Client {
@@ -526,6 +522,66 @@ async fn test_search_all() {
         !search_results.collection.is_empty(),
         "Should return at least one result"
     );
+}
+
+#[tokio::test]
+async fn test_resolve_url() {
+    let client = get_client().await;
+
+    // Test with a known SoundCloud URL
+    let url = "https://soundcloud.com/forss/flickermood";
+    let result = client.resolve_url(url).await;
+    assert!(result.is_ok(), "resolve_url should succeed");
+    let resolved = result.unwrap();
+    if let ResolvedResource::Track(track) = resolved {
+        assert!(
+            track.id.is_some(),
+            "Resolved resource should have an ID"
+        );
+    } else {
+        panic!("Resolved resource should be a Track");
+    }
+}
+
+#[tokio::test]
+async fn test_resolve_short_url() {
+    let client = get_client().await;
+
+    // Test with a known SoundCloud short URL
+    let url = "https://on.soundcloud.com/smX2jJTLh6uMOsMm8C";
+    let result = client.resolve_url(url).await;
+    assert!(result.is_ok(), "resolve_url should succeed");
+    let resolved = result.unwrap();
+    if let ResolvedResource::Track(track) = resolved {
+        assert!(
+            track.id.is_some(),
+            "Resolved resource should have an ID"
+        );
+    } else {
+        panic!("Resolved resource should be a Track");
+    }
+}
+
+#[tokio::test]
+async fn test_resolve_system_playlist_url() {
+    let client = get_client().await;
+
+    // Test with a known SoundCloud system playlist URL
+    let url = "https://soundcloud.com/discover/sets/liked-by::781685236";
+    let result = client.resolve_url(url).await;
+    match &result {
+        Err(e) => println!("ERROR: {:?}", e),
+        _ => ()
+    }
+    let resolved = result.unwrap();
+    if let ResolvedResource::SystemPlaylist(playlist) = resolved {
+        assert!(
+            playlist.id.is_some(),
+            "Resolved resource should have an ID"
+        );
+    } else {
+        panic!("Resolved resource should be a SystemPlaylist");
+    }
 }
 
 #[tokio::test]
