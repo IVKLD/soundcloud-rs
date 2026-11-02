@@ -160,6 +160,16 @@ impl Client {
                 .map_or(false, |p| p == stream_type)
         });
 
+        if let Some(mp3_non_snipped) = filtered.clone().find(|t| {
+            !t.snipped.unwrap_or(false)
+                && t.format
+                    .as_ref()
+                    .and_then(|f| f.mime_type.as_deref())
+                    .is_some_and(|mime| mime.starts_with("audio/mpeg"))
+        }) {
+            return Ok(mp3_non_snipped.clone());
+        }
+
         if let Some(non_snipped) = filtered.clone().find(|t| !t.snipped.unwrap_or(false)) {
             return Ok(non_snipped.clone());
         }
