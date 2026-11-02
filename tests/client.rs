@@ -1,7 +1,11 @@
-use soundcloud_rs::{query::{
-    AlbumQuery, Paging, PlaylistsQuery, SearchAllQuery, SearchResultsQuery, TracksQuery,
-    UsersQuery,
-}, response::{StreamType, Waveform}, Client, Identifier, ResolvedResource};
+use soundcloud_rs::{
+    Client, Identifier, ResolvedResource,
+    query::{
+        AlbumQuery, Paging, PlaylistsQuery, SearchAllQuery, SearchResultsQuery, TracksQuery,
+        UsersQuery,
+    },
+    response::{StreamType, Waveform},
+};
 
 // Create a single client instance that will be reused across all tests
 async fn get_client() -> Client {
@@ -534,10 +538,7 @@ async fn test_resolve_url() {
     assert!(result.is_ok(), "resolve_url should succeed");
     let resolved = result.unwrap();
     if let ResolvedResource::Track(track) = resolved {
-        assert!(
-            track.id.is_some(),
-            "Resolved resource should have an ID"
-        );
+        assert!(track.id.is_some(), "Resolved resource should have an ID");
     } else {
         panic!("Resolved resource should be a Track");
     }
@@ -553,10 +554,7 @@ async fn test_resolve_short_url() {
     assert!(result.is_ok(), "resolve_url should succeed");
     let resolved = result.unwrap();
     if let ResolvedResource::Track(track) = resolved {
-        assert!(
-            track.id.is_some(),
-            "Resolved resource should have an ID"
-        );
+        assert!(track.id.is_some(), "Resolved resource should have an ID");
     } else {
         panic!("Resolved resource should be a Track");
     }
@@ -571,14 +569,11 @@ async fn test_resolve_system_playlist_url() {
     let result = client.resolve_url(url).await;
     match &result {
         Err(e) => println!("ERROR: {:?}", e),
-        _ => ()
+        _ => (),
     }
     let resolved = result.unwrap();
     if let ResolvedResource::SystemPlaylist(playlist) = resolved {
-        assert!(
-            playlist.id.is_some(),
-            "Resolved resource should have an ID"
-        );
+        assert!(playlist.id.is_some(), "Resolved resource should have an ID");
     } else {
         panic!("Resolved resource should be a SystemPlaylist");
     }

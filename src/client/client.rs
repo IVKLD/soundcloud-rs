@@ -157,9 +157,7 @@ impl Client {
             let result = self.get_json(SOUNDCLOUD_API_URL, Some(path), query).await;
 
             return match result {
-                Ok((body, _status)) => {
-                    Ok(body)
-                }
+                Ok((body, _status)) => Ok(body),
                 Err(e) => {
                     if e.is_status(401) && self.retry_config.retry_on_401 && retries < max_retries {
                         retries += 1;
@@ -168,7 +166,7 @@ impl Client {
                     }
                     Err(e)
                 }
-            }
+            };
         }
     }
 
