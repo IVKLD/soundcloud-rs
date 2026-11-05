@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::response::{PagingCollection, users::UserSummary};
+use crate::{
+    models::response::{PagingCollection, users::UserSummary},
+    utils::resize_artwork_url,
+};
 
 pub type Tracks = PagingCollection<Track>;
 
@@ -46,6 +49,18 @@ pub struct Track {
     pub waveform_url: Option<String>,
 }
 
+impl Track {
+    pub fn artwork_url_with_size(&self, size: &str) -> Option<String> {
+        self.artwork_url
+            .as_deref()
+            .map(|u| resize_artwork_url(u, size))
+    }
+
+    pub fn high_res_artwork_url(&self) -> Option<String> {
+        self.artwork_url_with_size("t500x500")
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct PublisherMetadata {
     pub id: Option<i64>,
@@ -87,6 +102,13 @@ pub enum StreamType {
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Stream {
     pub url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct StreamSource {
+    pub url: String,
+    pub stream_type: StreamType,
+    pub proxy_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

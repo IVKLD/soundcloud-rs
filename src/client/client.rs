@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
 
 use regex::Regex;
 use serde::{Serialize, de::DeserializeOwned};
@@ -13,6 +13,12 @@ use crate::{
         error::Error,
     },
 };
+
+static SCRIPT_URL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"https?://[^\s"]+\.js"#).expect("valid script URL regex"));
+
+static CLIENT_ID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"client_id[:=]"?(\w{32})"#).expect("valid client ID regex"));
 
 impl Client {
     pub async fn new() -> Result<Self, Error> {
@@ -51,101 +57,13 @@ impl Client {
         self
     }
 
-    fn build_http_client(proxy_url: Option<&str>) -> Result<reqwest::Client, Error> {
-        let mut builder = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30));
-        if let Some(proxy) = proxy_url {
-            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
-        }
-        builder.build().map_err(Error::from)
+    /// Performs a GET request against the SoundCloud API without query parameters.
+    pub async fn get<R: DeserializeOwned>(&self, path: &str) -> Result<R, Error> {
+        self.get_with_query(path, None::<&()>).await
     }
 
-    /// If a `proxy_provider` is set, check whether the proxy URL it returns
-    /// differs from the one the current HTTP client was built with. If so,
-    /// rebuild the HTTP client so the next request uses the updated proxy.
-    pub(crate) async fn ensure_proxy_refreshed(&self) {
-        let Some(ref provider) = self.proxy_provider else {
-            return;
-        };
-        let desired = (provider.0)();
-        let current = self.active_proxy.read().await.clone();
-        if desired == current {
-            return;
-        }
-        match Self::build_http_client(desired.as_deref()) {
-            Ok(new_client) => {
-                *self.http_client.write().await = new_client;
-                *self.active_proxy.write().await = desired;
-            }
-            Err(e) => {
-                tracing::warn!("Failed to rebuild HTTP client with new proxy: {e}");
-            }
-        }
-    }
-
-    pub async fn refresh_client_id(&self) -> Result<(), Error> {
-        self.ensure_proxy_refreshed().await;
-        let http = self.http_client.read().await;
-        let new_client_id = Self::get_client_id(&http).await?;
-        *self.client_id.write().await = new_client_id;
-        Ok(())
-    }
-
-    pub async fn get_client_id_value(&self) -> String {
-        self.client_id.read().await.clone()
-    }
-
-    /// Returns the currently-active proxy URL (may differ from `proxy_url`
-    /// if a `proxy_provider` was attached and has returned a new value).
-    pub async fn current_proxy_url(&self) -> Option<String> {
-        self.active_proxy.read().await.clone()
-    }
-
-    pub async fn get_json<R: DeserializeOwned, Q: Serialize>(
-        &self,
-        base_url: &str,
-        path: Option<&str>,
-        query: Option<&Q>,
-    ) -> Result<(R, u16), Error> {
-        self.ensure_proxy_refreshed().await;
-
-        let url = match path {
-            Some(path) => format!(
-                "{}/{}",
-                base_url.trim_end_matches('/'),
-                path.trim_start_matches('/')
-            ),
-            None => base_url.to_string(),
-        };
-
-        let http = self.http_client.read().await;
-        let mut request = http.get(&url);
-
-        if let Some(q) = query {
-            request = request.query(q);
-        }
-        let client_id = self.client_id.read().await;
-        request = request.query(&[("client_id", &*client_id)]);
-
-        let response = request.send().await.map_err(Error::from)?;
-
-        let status = response.status().as_u16();
-
-        if !response.status().is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(Error::with_status(
-                status,
-                format!("HTTP {}: {}", status, text),
-            ));
-        }
-
-        let body = response.json::<R>().await.map_err(Error::from)?;
-
-        Ok((body, status))
-    }
-
-    pub async fn get<Q: Serialize, R: DeserializeOwned>(
+    /// Performs a GET request against the SoundCloud API with query parameters.
+    pub async fn get_with_query<Q: Serialize, R: DeserializeOwned>(
         &self,
         path: &str,
         query: Option<&Q>,
@@ -170,26 +88,102 @@ impl Client {
         }
     }
 
-    async fn get_script_urls(client: &reqwest::Client) -> Result<Vec<String>, Error> {
-        let response = client.get(SOUNDCLOUD_URL).send().await?;
-        let text = response.text().await?;
-        let re = Regex::new(r#"https?://[^\s"]+\.js"#).expect("Failed to find script URLs");
-        let urls: Vec<String> = re
-            .find_iter(&text)
-            .map(|mat| mat.as_str().to_string())
-            .filter(|url| url.contains("sndcdn.com"))
-            .collect();
-        Ok(urls)
+    pub async fn get_json<R: DeserializeOwned, Q: Serialize>(
+        &self,
+        base_url: &str,
+        path: Option<&str>,
+        query: Option<&Q>,
+    ) -> Result<(R, u16), Error> {
+        self.ensure_proxy_refreshed().await?;
+
+        let url = match path {
+            Some(path) => format!(
+                "{}/{}",
+                base_url.trim_end_matches('/'),
+                path.trim_start_matches('/')
+            ),
+            None => base_url.to_string(),
+        };
+
+        let http = self.http_client.read().await;
+        let mut request = http.get(&url);
+
+        if let Some(q) = query {
+            request = request.query(q);
+        }
+        let client_id = self.client_id.read().await;
+        request = request.query(&[("client_id", &*client_id)]);
+
+        let response = request.send().await?;
+
+        let status = response.status().as_u16();
+
+        if !response.status().is_success() {
+            let text = response.text().await.unwrap_or_default();
+            return Err(Error::HttpStatus {
+                status,
+                message: text,
+            });
+        }
+
+        let body = response.json::<R>().await?;
+
+        Ok((body, status))
     }
 
-    async fn find_client_id(client: reqwest::Client, url: String) -> Result<Option<String>, Error> {
-        let response = client.get(url).send().await?;
-        let text = response.text().await?;
-        let re = Regex::new(r#"client_id[:=]"?(\w{32})"#).expect("Failed to find client ID");
-        if let Some(cap) = re.captures_iter(&text).next() {
-            return Ok(Some(cap[1].to_string()));
+    pub async fn get_client_id_value(&self) -> String {
+        self.client_id.read().await.clone()
+    }
+
+    /// Returns the currently-active proxy URL (may differ from `proxy_url`
+    /// if a `proxy_provider` was attached and has returned a new value).
+    pub async fn current_proxy_url(&self) -> Option<String> {
+        self.active_proxy.read().await.clone()
+    }
+
+    pub async fn refresh_client_id(&self) -> Result<(), Error> {
+        self.ensure_proxy_refreshed().await?;
+        let http = self.http_client.read().await;
+        let new_client_id = Self::get_client_id(&http).await?;
+        *self.client_id.write().await = new_client_id;
+        Ok(())
+    }
+
+    /// If a `proxy_provider` is set, check whether the proxy URL it returns
+    /// differs from the one the current HTTP client was built with. If so,
+    /// rebuild the HTTP client so the next request uses the updated proxy.
+    pub async fn ensure_proxy_refreshed(&self) -> Result<(), Error> {
+        let Some(ref provider) = self.proxy_provider else {
+            return Ok(());
+        };
+        let desired = (provider.0)();
+        let current = self.active_proxy.read().await.clone();
+        if desired == current {
+            return Ok(());
         }
-        Ok(None)
+        let new_client = Self::build_http_client(desired.as_deref())?;
+        *self.http_client.write().await = new_client;
+        *self.active_proxy.write().await = desired;
+        Ok(())
+    }
+
+    pub async fn health_check(&self) -> bool {
+        self.get_with_query::<_, Value>(
+            "resolve",
+            Some(&[("url", "https://soundcloud.com/soundcloud")]),
+        )
+        .await
+        .is_ok()
+    }
+
+    fn build_http_client(proxy_url: Option<&str>) -> Result<reqwest::Client, Error> {
+        let mut builder = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30));
+        if let Some(proxy) = proxy_url {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
+        Ok(builder.build()?)
     }
 
     async fn get_client_id(client: &reqwest::Client) -> Result<String, Error> {
@@ -204,36 +198,28 @@ impl Client {
                 return Ok(client_id);
             }
         }
-        Err(Error::new("Client ID not found"))
+        Err(Error::ClientIdNotFound)
     }
 
-    pub async fn resolve_url(
-        &self,
-        url: impl AsRef<str>,
-    ) -> Result<crate::models::response::ResolvedResource, Error> {
-        let url_obj = reqwest::Url::parse(url.as_ref())
-            .map_err(|e| Error::new(format!("Invalid URL: {}", e)))?;
-        let mut target_url = url.as_ref().to_string();
-        if url_obj.host_str() == Some("on.soundcloud.com") {
-            let http = self.http_client.read().await;
-            let request = http.get(&target_url).send().await.map_err(Error::from)?;
-            if !request.status().is_success() {
-                Err(Error::with_status(
-                    request.status().as_u16(),
-                    format!("Failed to resolve on.soundcloud.com URL: {}", target_url),
-                ))?;
-            }
-            target_url = request.url().to_string();
+    async fn get_script_urls(client: &reqwest::Client) -> Result<Vec<String>, Error> {
+        let response = client.get(SOUNDCLOUD_URL).send().await?;
+        let text = response.text().await?;
+        let mut urls: Vec<String> = SCRIPT_URL_RE
+            .find_iter(&text)
+            .map(|mat| mat.as_str().to_string())
+            .filter(|url| url.contains("sndcdn.com"))
+            .collect();
+        urls.sort();
+        urls.dedup();
+        Ok(urls)
+    }
+
+    async fn find_client_id(client: reqwest::Client, url: String) -> Result<Option<String>, Error> {
+        let response = client.get(url).send().await?;
+        let text = response.text().await?;
+        if let Some(cap) = CLIENT_ID_RE.captures_iter(&text).next() {
+            return Ok(Some(cap[1].to_string()));
         }
-        self.get("resolve", Some(&[("url", target_url)])).await
-    }
-
-    pub async fn health_check(&self) -> bool {
-        self.get::<_, Value>(
-            "resolve",
-            Some(&[("url", "https://soundcloud.com/soundcloud")]),
-        )
-        .await
-        .is_ok()
+        Ok(None)
     }
 }

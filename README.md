@@ -66,21 +66,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 2. ClientBuilder with Proxy and Custom Retries
+### 2. ClientBuilder with Static or Dynamic Proxy
 
 ```rust
-use soundcloud_rs::{ClientBuilder, Identifier, query::TracksQuery};
+use std::sync::{Arc, RwLock};
+use soundcloud_rs::{ClientBuilder, ProxyUrlProvider};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // A) Static proxy:
+    // let client = ClientBuilder::new()
+    //     .with_proxy("http://127.0.0.1:8080".into())
+    //     .build()
+    //     .await?;
+
+    // B) Dynamic proxy provider (reactive updates at runtime):
+    let current_proxy = Arc::new(RwLock::new(Some("http://127.0.0.1:8080".to_string())));
+    let proxy_state = current_proxy.clone();
+    let provider = ProxyUrlProvider(Arc::new(move || proxy_state.read().unwrap().clone()));
+
     let client = ClientBuilder::new()
-        .with_proxy("http://127.0.0.1:8080")
+        .with_proxy_provider(provider)
         .with_max_retries(3)
         .with_retry_on_401(true)
         .build()
         .await?;
 
-    let track = client.get_track(&Identifier::Id(123456789)).await?;
+    // Direct ID pass-through (impl Into<Identifier>)
+    let track = client.get_track(123456789).await?;
     println!("Found track: {:?}", track.title);
 
     Ok(())

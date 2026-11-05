@@ -30,6 +30,48 @@ impl fmt::Display for Identifier {
     }
 }
 
+impl From<i64> for Identifier {
+    fn from(id: i64) -> Self {
+        Identifier::Id(id)
+    }
+}
+
+impl From<u64> for Identifier {
+    fn from(id: u64) -> Self {
+        Identifier::Id(id as i64)
+    }
+}
+
+impl From<i32> for Identifier {
+    fn from(id: i32) -> Self {
+        Identifier::Id(id as i64)
+    }
+}
+
+impl From<u32> for Identifier {
+    fn from(id: u32) -> Self {
+        Identifier::Id(id as i64)
+    }
+}
+
+impl From<String> for Identifier {
+    fn from(urn: String) -> Self {
+        Identifier::Urn(urn)
+    }
+}
+
+impl From<&str> for Identifier {
+    fn from(urn: &str) -> Self {
+        Identifier::Urn(urn.to_string())
+    }
+}
+
+impl From<&Identifier> for Identifier {
+    fn from(id: &Identifier) -> Self {
+        id.clone()
+    }
+}
+
 /// SoundCloud API client
 pub struct Client {
     pub client_id: RwLock<String>,

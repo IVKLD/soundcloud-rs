@@ -143,29 +143,22 @@ async fn test_get_track_related() {
 }
 
 #[tokio::test]
-async fn test_get_stream_url() {
+async fn test_resolve_stream() {
     let client = get_client().await;
     let track_id = get_test_track_id(&client).await;
-    let identifier = Identifier::Id(track_id);
 
-    // Test with default stream type (Progressive)
-    let result = client.get_stream_url(&identifier, None).await;
-    assert!(result.is_ok(), "get_stream_url should succeed");
-    let url = result.unwrap();
+    let result = client.resolve_stream(track_id).await;
+    assert!(result.is_ok(), "resolve_stream should succeed");
+    let (url, stream_type) = result.unwrap();
     assert!(!url.is_empty(), "Stream URL should not be empty");
     assert!(
         url.starts_with("http"),
         "Stream URL should be a valid HTTP URL"
     );
-
-    // Test with Progressive stream type
-    let result = client
-        .get_stream_url(&identifier, Some(&StreamType::Progressive))
-        .await;
-    assert!(
-        result.is_ok(),
-        "get_stream_url with Progressive should succeed"
-    );
+    assert!(matches!(
+        stream_type,
+        StreamType::Hls | StreamType::Progressive
+    ));
 }
 
 #[tokio::test]
@@ -582,13 +575,64 @@ async fn test_resolve_system_playlist_url() {
 #[tokio::test]
 async fn test_health_check() {
     let client = get_client().await;
-    // health_check returns true if API responds successfully (2xx), false otherwise
-    // This test verifies the method can be called without panicking
     let result = client.health_check().await;
-    // The result should be a boolean (true if API is healthy, false if not)
-    // Since we can't guarantee API availability, we just verify it doesn't panic
     assert!(
         matches!(result, true | false),
         "health_check should return a boolean"
     );
+}
+
+#[tokio::test]
+async fn test_is_soundcloud_url() {
+    assert!(soundcloud_rs::is_soundcloud_url(
+        "https://soundcloud.com/artist/track"
+    ));
+    assert!(soundcloud_rs::is_soundcloud_url(
+        "https://on.soundcloud.com/xyz123"
+    ));
+    assert!(soundcloud_rs::is_soundcloud_url(
+        "https://m.soundcloud.com/artist/track"
+    ));
+    assert!(!soundcloud_rs::is_soundcloud_url(
+        "https://youtube.com/watch?v=123"
+    ));
+}
+
+#[tokio::test]
+async fn test_artwork_resize() {
+    let url = "https://i1.sndcdn.com/artworks-000123-large.jpg";
+    let resized = soundcloud_rs::resize_artwork_url(url, "t500x500");
+    assert_eq!(
+        resized,
+        "https://i1.sndcdn.com/artworks-000123-t500x500.jpg"
+    );
+
+    let resized_with_dash = soundcloud_rs::resize_artwork_url(url, "-t200x200");
+    assert_eq!(
+        resized_with_dash,
+        "https://i1.sndcdn.com/artworks-000123-t200x200.jpg"
+    );
+}
+
+#[tokio::test]
+async fn test_resolve_to_tracks() {
+    let client = get_client().await;
+    let url = "https://soundcloud.com/octobersveryown/drake-back-to-back-freestyle";
+    let tracks = client
+        .resolve_to_tracks(url)
+        .await
+        .expect("resolve_to_tracks failed");
+    assert_eq!(tracks.len(), 1);
+    assert!(tracks[0].id.is_some());
+}
+
+#[tokio::test]
+async fn test_get_playlist_tracks() {
+    let client = get_client().await;
+    if let Some(playlist_id) = get_test_playlist_id(&client).await {
+        let result = client
+            .get_playlist_tracks(&Identifier::Id(playlist_id))
+            .await;
+        assert!(result.is_ok(), "get_playlist_tracks should succeed");
+    }
 }
