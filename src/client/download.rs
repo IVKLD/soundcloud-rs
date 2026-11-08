@@ -4,10 +4,9 @@ use std::{
 };
 
 use ffmpeg_sidecar::{command::FfmpegCommand, download};
-use futures::StreamExt;
-use tokio::io::AsyncWriteExt;
 
 use crate::{
+    fs::FileService,
     models::{client::Client, error::Error, response::Track},
     response::{StreamSource, StreamType},
 };
@@ -54,11 +53,7 @@ impl Client {
         output_path: &Path,
         on_progress: Option<&ProgressCallback>,
     ) -> Result<(), Error> {
-        if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-        }
+        FileService::ensure_parent_dir(output_path).await?;
 
         let (stream_url, stream_type) = self.resolve_stream_from_track(track).await?;
         let source = StreamSource {
@@ -79,20 +74,20 @@ impl Client {
         let http = self.http_client.read().await;
         let response = http.get(stream_url).send().await?.error_for_status()?;
         let exact_size = response.content_length();
+        let stream = response.bytes_stream();
 
-        let mut file = tokio::fs::File::create(output_path).await?;
-        let mut stream = response.bytes_stream();
-        let mut position = 0u64;
+        FileService::write_stream_to_file(
+            output_path,
+            stream,
+            exact_size,
+            move |downloaded, total| {
+                if let Some(cb) = on_progress {
+                    cb(downloaded, total);
+                }
+            },
+        )
+        .await?;
 
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            file.write_all(&chunk).await?;
-            position += chunk.len() as u64;
-
-            if let Some(cb) = on_progress {
-                cb(position, exact_size);
-            }
-        }
         Ok(())
     }
 
@@ -120,17 +115,15 @@ impl Client {
                 ffmpeg.arg("-http_proxy").arg(proxy);
             }
             ffmpeg.args(["-rw_timeout", "15000000"]);
-            let status = ffmpeg
+            ffmpeg
                 .input(&stream_url)
                 .args(["-codec:a", "libmp3lame", "-q:a", "2", "-f", "mp3"])
                 .output(output_str)
                 .spawn()?
-                .wait()?;
-
-            if !status.success() {
-                return Err(Error::HlsDownloadFailed);
-            }
-            Ok(())
+                .wait()?
+                .success()
+                .then_some(())
+                .ok_or(Error::HlsDownloadFailed)
         })
         .await?
     }
