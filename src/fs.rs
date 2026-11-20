@@ -67,6 +67,17 @@ impl FileService {
         }
 
         writer.flush().await?;
+
+        if let Some(expected) = total_size
+            && expected > 0
+            && downloaded < expected
+        {
+            return Err(Error::IncompleteDownload {
+                received: downloaded,
+                expected,
+            });
+        }
+
         Ok(downloaded)
     }
 }

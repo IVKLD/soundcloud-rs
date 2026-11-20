@@ -179,7 +179,7 @@ impl Client {
     fn build_http_client(proxy_url: Option<&str>) -> Result<reqwest::Client, Error> {
         let mut builder = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30));
+            .read_timeout(Duration::from_secs(30));
         if let Some(proxy) = proxy_url {
             builder = builder.proxy(reqwest::Proxy::all(proxy)?);
         }

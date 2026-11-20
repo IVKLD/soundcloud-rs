@@ -71,7 +71,8 @@ impl Client {
         output_path: &Path,
         on_progress: Option<&ProgressCallback>,
     ) -> Result<(), Error> {
-        let http = self.http_client.read().await;
+        self.ensure_proxy_refreshed().await?;
+        let http = self.http_client.read().await.clone();
         let response = http.get(stream_url).send().await?.error_for_status()?;
         let exact_size = response.content_length();
         let stream = response.bytes_stream();
@@ -114,6 +115,7 @@ impl Client {
             if let Some(ref proxy) = resolved_proxy {
                 ffmpeg.arg("-http_proxy").arg(proxy);
             }
+            ffmpeg.overwrite();
             ffmpeg.args(["-rw_timeout", "15000000"]);
             ffmpeg
                 .input(&stream_url)

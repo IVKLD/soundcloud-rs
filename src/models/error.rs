@@ -60,6 +60,9 @@ pub enum Error {
     #[error("HLS download failed")]
     HlsDownloadFailed,
 
+    #[error("Incomplete download: received {received} of {expected} bytes")]
+    IncompleteDownload { received: u64, expected: u64 },
+
     #[error("{0}")]
     Other(String),
 }
